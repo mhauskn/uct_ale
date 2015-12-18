@@ -109,14 +109,16 @@ void Node::print(int indent, bool print_children) {
 }
 
 UCT::UCT(ALEInterface& ale, int search_depth, int simulations_per_step,
-         float gamma, ActionVect& actions) :
+         float gamma, ActionVect& actions, mt19937& rng) :
     ale(ale),
     possible_actions(actions),
     search_depth(search_depth),
     simulations_per_step(simulations_per_step),
     gamma(gamma),
     root(NULL),
-    time_step(0)
+    time_step(0),
+    total_reward(0),
+    rng(rng)
 {
   root = new Node(ale.cloneState(), possible_actions);
 }
@@ -137,7 +139,7 @@ Action UCT::step() {
     // Expand
     if (!n->fully_expanded()) {
       list<Action>::iterator it = n->untried_actions.begin();
-      advance(it, rand() % n->untried_actions.size());
+      advance(it, rng() % n->untried_actions.size());
       Action a = *it;
       n->untried_actions.erase(it);
       ale.restoreState(n->state);
@@ -160,10 +162,13 @@ Action UCT::step() {
   delete root;
   selected_child->parent = NULL;
   root = selected_child;
+  total_reward += selected_child->imm_reward;
   cout << "t=" << time_step
        << " a=" << selected_child->action
        << " r=" << selected_child->imm_reward
-       << " J=" << selected_child->avg_return << endl;
+       << " J=" << selected_child->avg_return
+       << " R=" << total_reward
+       << endl;
   time_step++;
   return selected_child->action;
 }
@@ -174,7 +179,7 @@ float UCT::rollout(Node* n, int max_depth) {
   float discount = 1;
   int depth = 0;
   while (!ale.game_over() && depth < max_depth) {
-    Action a = possible_actions[rand() % possible_actions.size()];
+    Action a = possible_actions[rng() % possible_actions.size()];
     total_return += discount * ale.act(a);
     discount *= gamma;
     depth++;
@@ -204,42 +209,4 @@ Action UCT::select_action(Node* n) {
     }
   }
   return best_child->action;
-}
-
-int main(int argc, char** argv) {
-    if (argc < 2) {
-        std::cerr << "Usage: " << argv[0] << " rom_file" << std::endl;
-        return 1;
-    }
-
-    int search_depth = 300;
-    int simulations_per_step = 10;
-    float gamma = .999;
-    int frame_skip = 40;
-    float repeat_action_prob = 0;
-
-    ALEInterface ale;
-    ale.setInt("frame_skip", frame_skip);
-    ale.setFloat("repeat_action_probability", repeat_action_prob);
-    ale.loadROM(argv[1]);
-    ActionVect legal_actions = ale.getLegalActionSet();
-
-    ALEState start_state = ale.cloneState();
-    ActionVect selected_actions;
-    UCT uct(ale, search_depth, simulations_per_step, gamma, legal_actions);
-    while (!uct.game_over()) {
-      Action a = uct.step();
-      selected_actions.push_back(a);
-    }
-
-    cout << "Replaying UCT Actions" << endl;
-    float total_reward = 0;
-    ale.restoreState(start_state);
-    for (int i=0; i<selected_actions.size(); ++i) {
-      assert(!ale.game_over());
-      total_reward += ale.act(selected_actions[i]);
-    }
-    assert(ale.game_over());
-    cout << "Total Reward: " << total_reward << endl;
-    return 0;
 }

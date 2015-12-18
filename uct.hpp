@@ -32,7 +32,7 @@ public:
 class UCT {
 public:
   UCT(ALEInterface& ale, int search_depth, int simulations_per_step,
-      float gamma, ActionVect& actions);
+      float gamma, ActionVect& actions, std::mt19937& rng);
   ~UCT();
 
   Action step();
@@ -45,9 +45,11 @@ protected:
   ALEInterface& ale;
   ActionVect& possible_actions;
   ActionVect terminal_vec;
+  std::mt19937& rng;
   int search_depth;
   int simulations_per_step;
   float gamma;
   Node* root;
   int time_step;
+  float total_reward;
 };
