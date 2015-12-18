@@ -20,4 +20,4 @@ include_directories(${GFLAGS_INCLUDE_DIR})
 
 add_executable(uct uct.cpp main.cpp)
 add_dependencies(uct ale)
-target_link_libraries(uct -lale ${GFLAGS_LIBRARY})
+target_link_libraries(uct -lale ${GFLAGS_LIBRARY} -lpthread)
