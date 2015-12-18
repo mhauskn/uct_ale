@@ -12,7 +12,7 @@ public:
   Node* most_visited_child();
   Node* add_child(Action a, ALEInterface& ale, ActionVect& possible_actions);
   Node* get_child(Action a);
-  void prune(Node* child_to_keep);
+  void prune(Node* chosen_child);
   bool is_leaf();
 
   Action action;

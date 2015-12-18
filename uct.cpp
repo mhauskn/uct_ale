@@ -1,3 +1,4 @@
+#include <assert.h>
 #include "uct.hpp"
 
 using namespace std;
@@ -72,20 +73,29 @@ Node* Node::most_visited_child() {
 }
 
 Node* Node::add_child(Action a, ALEInterface& ale, ActionVect& possible_actions) {
+  cout << "Adding new child" << endl;
   float reward = ale.act(a);
-  Node* child = new Node(this, a, ale.cloneState(), reward, possible_actions);
+  ALEState s = ale.cloneState();
+  for (list<Node*>::iterator iter=children.begin(); iter!=children.end(); iter++) {
+    Node* child = *iter;
+    if (child->state.equals(s)) {
+      cout << "Found child match" << endl;
+      return child;
+    }
+  }
+  Node* child = new Node(this, a, s, reward, possible_actions);
   children.push_back(child);
-  untried_actions.remove(a);
   return child;
 }
 
-void Node::prune(Node* child_to_keep) {
+void Node::prune(Node* chosen_child) {
   for (list<Node*>::iterator iter=children.begin(); iter!=children.end(); iter++) {
     Node* child = *iter;
-    if (child != child_to_keep) {
+    if (child != chosen_child) {
       delete child;
     }
   }
+  children.clear();
 }
 
 UCT::UCT(ALEInterface& ale, int search_depth, int simulations_per_step,
@@ -107,11 +117,14 @@ UCT::~UCT() {
 Action UCT::step() {
   for (int i=0; i<simulations_per_step; ++i) {
     sample();
+    cout << "Simulation " << i << endl;
   }
   Node* most_visited_child = root->most_visited_child();
+  assert(most_visited_child);
   root->prune(most_visited_child);
   delete root;
   root = most_visited_child;
+  cout << "Moving to child with value: " << root->avg_return << endl;
   return most_visited_child->action;
 }
 
@@ -123,9 +136,8 @@ void UCT::sample() {
       Action a = select_action(n);
       n = n->get_child(a);
     } else {
-      int action_idx = rand() % n->untried_actions.size();
       list<Action>::iterator it = n->untried_actions.begin();
-      advance(it, action_idx);
+      advance(it, rand() % n->untried_actions.size());
       Action a = *it;
       n->untried_actions.erase(it);
       n = n->add_child(a, ale, possible_actions);
@@ -140,10 +152,17 @@ float UCT::rollout(Node* n, int max_depth) {
   ale.restoreState(n->state);
   float total_return = 0;
   float discount = 1;
-  while (!ale.game_over() && max_depth > 0) {
-    total_return += discount * ale.act(possible_actions[rand() % possible_actions.size()]);
+  int depth = 0;
+  while (!ale.game_over() && depth < max_depth) {
+    Action a = possible_actions[rand() % possible_actions.size()];
+    if (depth == 0) {
+      n = n->add_child(a, ale, possible_actions);
+      total_return += discount * n->imm_reward;
+    } else {
+      total_return += discount * ale.act(a);
+    }
     discount *= gamma;
-    max_depth--;
+    depth++;
   }
   return total_return;
 }
@@ -178,12 +197,31 @@ int main(int argc, char** argv) {
     }
 
     int search_depth = 300;
-    int simulations_per_step = 500;
+    int simulations_per_step = 5;
     float gamma = .999;
 
     ALEInterface ale;
     ale.loadROM(argv[1]);
     ActionVect legal_actions = ale.getLegalActionSet();
+
+    // ale.act(legal_actions[0]);
+    // ALEState s1 = ale.cloneState();
+    // for (int i=0; i<100; ++i) {
+    //   ale.act(legal_actions[i%legal_actions.size()]);
+    // }
+    // ALEState s1_end = ale.cloneState();
+
+    // ale.restoreState(s1);
+    // ALEState s2 = ale.cloneState();
+    // for (int i=0; i<100; ++i) {
+    //   ale.act(legal_actions[i%legal_actions.size()]);
+    // }
+    // ALEState s2_end = ale.cloneState();
+    // if (s1_end.equals(s2)) {
+    //   cout << "Got Match" << endl;
+    // } else {
+    //   cout << "No Match" << endl;
+    // }
 
     UCT uct(ale, search_depth, simulations_per_step, gamma, legal_actions);
     uct.step();
