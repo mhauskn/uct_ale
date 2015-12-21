@@ -1,6 +1,7 @@
 #include <iostream>
 #include <ale_interface.hpp>
 #include <list>
+#include <random>
 
 class Node {
 public:
@@ -31,12 +32,12 @@ public:
 
 class UCT {
 public:
-  UCT(ALEInterface& ale, int search_depth, int simulations_per_step,
-      float gamma, ActionVect& actions, std::mt19937& rng);
+  UCT(ALEInterface& ale, ActionVect& actions, std::mt19937& rng);
   ~UCT();
 
   Action step();
   float rollout(Node* n, int depth);
+  Node* rollout_add_nodes(Node* n, int depth);
   void update_value(Node* n, float total_return);
   Action select_action(Node* n);
   bool game_over() { return root->terminal(); };
@@ -46,9 +47,6 @@ protected:
   ActionVect& possible_actions;
   ActionVect terminal_vec;
   std::mt19937& rng;
-  int search_depth;
-  int simulations_per_step;
-  float gamma;
   Node* root;
   int time_step;
   float total_reward;

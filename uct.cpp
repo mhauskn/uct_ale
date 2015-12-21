@@ -1,7 +1,13 @@
+#include <gflags/gflags.h>
 #include <assert.h>
 #include "uct.hpp"
 
 using namespace std;
+
+DEFINE_int32(search_depth, 300, "Depth of search tree");
+DEFINE_int32(simulations, 500, "Simulations to do at each UCT step");
+DEFINE_double(gamma, .999, "Discount factor");
+DEFINE_bool(max_uct, false, "Max vs average value in node update");
 
 Node::Node(ALEState state, ActionVect& possible_actions) :
     parent(NULL),
@@ -78,6 +84,7 @@ Node* Node::add_child(Action a, ALEState s, float reward, ActionVect& possible_a
   for (list<Node*>::iterator iter=children.begin(); iter!=children.end(); iter++) {
     Node* child = *iter;
     if (child->state.equals(s)) {
+      child->visits--; // Offset unintentional visit
       return child;
     }
   }
@@ -99,7 +106,8 @@ void Node::prune(Node* chosen_child) {
 void Node::print(int indent, bool print_children) {
   string s;
   for (int i=0; i<indent; ++i) { s += " "; };
-  cout << s << "a=" << action << " r=" << imm_reward << " J=" << avg_return << " v=" << visits << endl;
+  cout << s << "a=" << action << " r=" << imm_reward << " J=" << avg_return
+       << " v=" << visits << endl;
   if (print_children) {
     for (list<Node*>::iterator iter=children.begin(); iter!=children.end(); iter++) {
       Node* child = *iter;
@@ -108,13 +116,9 @@ void Node::print(int indent, bool print_children) {
   }
 }
 
-UCT::UCT(ALEInterface& ale, int search_depth, int simulations_per_step,
-         float gamma, ActionVect& actions, mt19937& rng) :
+UCT::UCT(ALEInterface& ale, ActionVect& actions, mt19937& rng) :
     ale(ale),
     possible_actions(actions),
-    search_depth(search_depth),
-    simulations_per_step(simulations_per_step),
-    gamma(gamma),
     root(NULL),
     time_step(0),
     total_reward(0),
@@ -128,11 +132,11 @@ UCT::~UCT() {
 }
 
 Action UCT::step() {
-  for (int i=0; i<simulations_per_step; ++i) {
+  for (int i=0; i<FLAGS_simulations; ++i) {
     Node* n = root;
     int depth = 0;
     // Select
-    while (n->fully_expanded() && n->has_children() && depth++ < search_depth) {
+    while (n->fully_expanded() && n->has_children() && depth++ < FLAGS_search_depth) {
       Action a = select_action(n);
       n = n->get_child(a);
     }
@@ -151,10 +155,13 @@ Action UCT::step() {
       }
       depth++;
     }
-    // Rollout
-    float J = rollout(n, search_depth - depth);
-    // Backpropagate
-    update_value(n, J);
+    if (FLAGS_max_uct) {
+      n = rollout_add_nodes(n, FLAGS_search_depth - depth);
+      update_value(n, 0);
+    } else {
+      float J = rollout(n, FLAGS_search_depth - depth);
+      update_value(n, J);
+    }
   }
   Node* selected_child = root->highest_value_child(); //root->most_visited_child();
   assert(selected_child);
@@ -180,19 +187,37 @@ float UCT::rollout(Node* n, int max_depth) {
   int depth = 0;
   while (!ale.game_over() && depth < max_depth) {
     Action a = possible_actions[rng() % possible_actions.size()];
-    total_return += discount * ale.act(a);
-    discount *= gamma;
+    float reward = ale.act(a);
+    total_return += discount * reward;
+    discount *= FLAGS_gamma;
     depth++;
   }
   return total_return;
 }
 
+Node* UCT::rollout_add_nodes(Node* n, int max_depth) {
+  ale.restoreState(n->state);
+  int depth = 0;
+  while (!ale.game_over() && depth < max_depth) {
+    Action a = possible_actions[rng() % possible_actions.size()];
+    float reward = ale.act(a);
+    depth++;
+    n = n->add_child(a, ale.cloneState(), reward, possible_actions);
+  }
+  return n;
+}
+
 void UCT::update_value(Node* n, float total_return) {
   float R = n->imm_reward + total_return;
   do {
-    n->avg_return = n->avg_return * (n->visits / float(n->visits+1)) + R / float(n->visits+1);
+    if (FLAGS_max_uct) {
+      n->avg_return = max(R, n->avg_return);
+    } else {
+      n->avg_return = n->avg_return * (n->visits / float(n->visits+1))
+          + R / float(n->visits+1);
+    }
     n->visits++;
-    R *= gamma;
+    R *= FLAGS_gamma;
     n = n->parent;
   } while (n != NULL);
 }

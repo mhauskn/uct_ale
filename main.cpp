@@ -5,9 +5,6 @@
 
 using namespace std;
 
-DEFINE_int32(search_depth, 300, "Depth of search tree");
-DEFINE_int32(simulations, 500, "Simulations to do at each UCT step");
-DEFINE_double(gamma, .999, "Discount factor");
 DEFINE_int32(frame_skip, 3, "Frames skipped at each action");
 DEFINE_double(repeat_action_prob, 0, "Probability to repeat actions");
 DEFINE_string(rom, "", "Atari ROM file to load");
@@ -27,7 +24,7 @@ int main(int argc, char** argv) {
       ale.getLegalActionSet();
   ALEState start_state = ale.cloneState();
   ActionVect selected_actions;
-  UCT uct(ale, FLAGS_search_depth, FLAGS_simulations, FLAGS_gamma, action_set, rng);
+  UCT uct(ale, action_set, rng);
   while (!uct.game_over()) {
     Action a = uct.step();
     selected_actions.push_back(a);
