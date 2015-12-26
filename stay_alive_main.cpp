@@ -1,7 +1,7 @@
 #include <gflags/gflags.h>
 #include <random>
 #include <chrono>
-#include "uct.hpp"
+#include "stay_alive.hpp"
 
 using namespace std;
 
@@ -24,18 +24,15 @@ int main(int argc, char** argv) {
       ale.getLegalActionSet();
   ALEState start_state = ale.cloneState();
   ActionVect selected_actions;
-  UCT uct(ale, action_set, rng);
-  while (!uct.game_over()) {
-    Action a = uct.step();
-    selected_actions.push_back(a);
-  }
-  cout << "Replaying UCT Actions" << endl;
+  StayAlive alive(ale, action_set, rng);
+  selected_actions = alive.run();
+  cout << "ActionSequence: ";
   float total_reward = 0;
   ale.restoreState(start_state);
   for (int i=0; i<selected_actions.size(); ++i) {
-    assert(!ale.game_over());
+    cout << selected_actions[i] << " ";
     total_reward += ale.act(selected_actions[i]);
   }
-  assert(ale.game_over());
+  cout << endl;
   cout << "Total Reward: " << total_reward << endl;
 }

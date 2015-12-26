@@ -4,117 +4,10 @@
 
 using namespace std;
 
-DEFINE_int32(search_depth, 300, "Depth of search tree");
-DEFINE_int32(simulations, 500, "Simulations to do at each UCT step");
+DEFINE_int32(search_depth, 30, "Depth of search tree");
+DEFINE_int32(simulations, 50, "Simulations to do at each UCT step");
 DEFINE_double(gamma, .999, "Discount factor");
 DEFINE_bool(max_uct, false, "Max vs average value in node update");
-
-Node::Node(ALEState state, ActionVect& possible_actions) :
-    parent(NULL),
-    visits(0),
-    imm_reward(0),
-    avg_return(0),
-    state(state)
-{
-  untried_actions.assign(possible_actions.begin(), possible_actions.end());
-}
-
-Node::Node(Node* parent, Action a, ALEState state, float reward, ActionVect& possible_actions) :
-    parent(parent),
-    action(a),
-    visits(0),
-    imm_reward(reward),
-    avg_return(0),
-    state(state)
-{
-  untried_actions.assign(possible_actions.begin(), possible_actions.end());
-}
-
-Node::~Node() {
-  for (list<Node*>::iterator iter=children.begin(); iter!=children.end(); iter++) {
-    Node* child = *iter;
-    delete child;
-  }
-}
-
-Node* Node::get_child(Action a) {
-  for (list<Node*>::iterator iter=children.begin(); iter!=children.end(); iter++) {
-    Node *child = *iter;
-    if (child->action == a) {
-      return child;
-    }
-  }
-  return NULL;
-}
-
-Node* Node::highest_value_child() {
-  float best_return;
-  Node *best_child = NULL;
-  for (list<Node*>::iterator iter=children.begin(); iter!=children.end(); iter++) {
-    Node *child = *iter;
-    if (best_child == NULL || child->avg_return > best_return) {
-      best_return = child->avg_return;
-      best_child = child;
-    }
-  }
-  return best_child;
-}
-
-Node* Node::most_visited_child() {
-  Node *best_child = NULL;
-  int most_visits = 0;
-  float best_return;
-  for (list<Node*>::iterator iter=children.begin(); iter!=children.end(); iter++) {
-    Node *child = *iter;
-    if (child->visits > most_visits) {
-      best_child = child;
-      most_visits = child->visits;
-      best_return = child->avg_return;
-    } else if (child->visits == most_visits) {
-      if (child->avg_return > best_return) {
-        best_child = child;
-        best_return = child->avg_return;
-      }
-    }
-  }
-  return best_child;
-}
-
-Node* Node::add_child(Action a, ALEState s, float reward, ActionVect& possible_actions) {
-  for (list<Node*>::iterator iter=children.begin(); iter!=children.end(); iter++) {
-    Node* child = *iter;
-    if (child->state.equals(s)) {
-      child->visits--; // Offset unintentional visit
-      return child;
-    }
-  }
-  Node* child = new Node(this, a, s, reward, possible_actions);
-  children.push_back(child);
-  return child;
-}
-
-void Node::prune(Node* chosen_child) {
-  for (list<Node*>::iterator iter=children.begin(); iter!=children.end(); iter++) {
-    Node* child = *iter;
-    if (child != chosen_child) {
-      delete child;
-    }
-  }
-  children.clear();
-}
-
-void Node::print(int indent, bool print_children) {
-  string s;
-  for (int i=0; i<indent; ++i) { s += " "; };
-  cout << s << "a=" << action << " r=" << imm_reward << " J=" << avg_return
-       << " v=" << visits << endl;
-  if (print_children) {
-    for (list<Node*>::iterator iter=children.begin(); iter!=children.end(); iter++) {
-      Node* child = *iter;
-      child->print(indent+2, print_children);
-    }
-  }
-}
 
 UCT::UCT(ALEInterface& ale, ActionVect& actions, mt19937& rng) :
     ale(ale),
@@ -131,6 +24,23 @@ UCT::~UCT() {
   delete root;
 }
 
+Node* UCT::expand(Node* n) {
+  if (!n->fully_expanded()) {
+    list<Action>::iterator it = n->untried_actions.begin();
+    advance(it, rng() % n->untried_actions.size());
+    Action a = *it;
+    n->untried_actions.erase(it);
+    ale.restoreState(n->state);
+    float reward = ale.act(a);
+    if (ale.game_over()) {
+      n = n->add_child(a, ale.cloneState(), reward, terminal_vec);
+    } else {
+      n = n->add_child(a, ale.cloneState(), reward, possible_actions);
+    }
+  }
+  return n;
+}
+
 Action UCT::step() {
   for (int i=0; i<FLAGS_simulations; ++i) {
     Node* n = root;
@@ -140,21 +50,8 @@ Action UCT::step() {
       Action a = select_action(n);
       n = n->get_child(a);
     }
-    // Expand
-    if (!n->fully_expanded()) {
-      list<Action>::iterator it = n->untried_actions.begin();
-      advance(it, rng() % n->untried_actions.size());
-      Action a = *it;
-      n->untried_actions.erase(it);
-      ale.restoreState(n->state);
-      float reward = ale.act(a);
-      if (ale.game_over()) {
-        n = n->add_child(a, ale.cloneState(), reward, terminal_vec);
-      } else {
-        n = n->add_child(a, ale.cloneState(), reward, possible_actions);
-      }
-      depth++;
-    }
+    n = expand(n);
+    depth++;
     if (FLAGS_max_uct) {
       n = rollout_add_nodes(n, FLAGS_search_depth - depth);
       update_value(n, 0);
@@ -170,11 +67,11 @@ Action UCT::step() {
   selected_child->parent = NULL;
   root = selected_child;
   total_reward += selected_child->imm_reward;
-  cout << "t=" << time_step
-       << " a=" << selected_child->action
-       << " r=" << selected_child->imm_reward
-       << " J=" << selected_child->avg_return
-       << " R=" << total_reward
+  cout << "timestep=" << time_step
+       << ", action=" << selected_child->action
+       << ", reward=" << selected_child->imm_reward
+       << ", expectedReturn=" << selected_child->avg_return
+       << ", cumulativeReward=" << total_reward
        << endl;
   time_step++;
   return selected_child->action;
@@ -208,8 +105,9 @@ Node* UCT::rollout_add_nodes(Node* n, int max_depth) {
 }
 
 void UCT::update_value(Node* n, float total_return) {
-  float R = n->imm_reward + total_return;
+  float R = total_return;
   do {
+    R += n->imm_reward;
     if (FLAGS_max_uct) {
       n->avg_return = max(R, n->avg_return);
     } else {
