@@ -25,6 +25,9 @@ vector<Action> StayAlive::run() {
       cout << "NewBest: score=" << root->avg_return << " depth=" << depth << endl;
     }
     while (n->imm_reward == 0 || n->fully_expanded()) {
+      if (n->parent == NULL) {
+        break;
+      }
       n = n->parent;
       depth--;
     }
