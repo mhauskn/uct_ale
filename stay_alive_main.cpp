@@ -1,8 +1,10 @@
 #include <gflags/gflags.h>
 #include <random>
 #include <chrono>
-#include <SDL.h>
 #include "stay_alive.hpp"
+#ifdef __USE_SDL
+  #include <SDL.h>
+#endif
 
 using namespace std;
 
@@ -10,8 +12,8 @@ DEFINE_int32(frame_skip, 3, "Frames skipped at each action");
 DEFINE_double(repeat_action_prob, 0, "Probability to repeat actions");
 DEFINE_string(rom, "", "Atari ROM file to load");
 DEFINE_bool(minimal_action_set, false, "Use minimal action set");
+DEFINE_bool(display, false, "Display the trajectory");
 DEFINE_int32(seed, 0, "Random seed. Default: time");
-DEFINE_bool(display, false, "Visualize the policy");
 
 int main(int argc, char** argv) {
   google::ParseCommandLineFlags(&argc, &argv, true);
@@ -33,12 +35,15 @@ int main(int argc, char** argv) {
   float total_reward = 0;
 
   if (FLAGS_display) {
+#ifdef __USE_SDL
     ale.setBool("display_screen", true);
     ale.setBool("sound", true);
     ale.loadROM(FLAGS_rom);
+#else
+    cerr << "Recompile with SDL on to display." << endl;
+#endif
   }
-  ale.reset_game();
-  // ale.restoreState(start_state);
+  ale.restoreState(start_state);
 
   for (int i=0; i<selected_actions.size(); ++i) {
     cout << selected_actions[i] << " ";
