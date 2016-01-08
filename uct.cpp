@@ -17,7 +17,7 @@ UCT::UCT(ALEInterface& ale, ActionVect& actions, mt19937& rng) :
     total_reward(0),
     rng(rng)
 {
-  root = new Node(ale.cloneState(), possible_actions);
+  root = new Node(ale.cloneState(), ale.lives(), possible_actions);
 }
 
 UCT::~UCT() {
@@ -32,10 +32,11 @@ Node* UCT::expand(Node* n) {
     n->untried_actions.erase(it);
     ale.restoreState(n->state);
     float reward = ale.act(a);
+    int lives = ale.lives();
     if (ale.game_over()) {
-      n = n->add_child(a, ale.cloneState(), reward, terminal_vec);
+      n = n->add_child(a, ale.cloneState(), reward, lives, terminal_vec);
     } else {
-      n = n->add_child(a, ale.cloneState(), reward, possible_actions);
+      n = n->add_child(a, ale.cloneState(), reward, lives, possible_actions);
     }
   }
   return n;
@@ -98,8 +99,9 @@ Node* UCT::rollout_add_nodes(Node* n, int max_depth) {
   while (!ale.game_over() && depth < max_depth) {
     Action a = possible_actions[rng() % possible_actions.size()];
     float reward = ale.act(a);
+    int lives = ale.lives();
     depth++;
-    n = n->add_child(a, ale.cloneState(), reward, possible_actions);
+    n = n->add_child(a, ale.cloneState(), reward, lives, possible_actions);
   }
   return n;
 }

@@ -3,22 +3,25 @@
 
 using namespace std;
 
-Node::Node(ALEState state, ActionVect& possible_actions) :
+Node::Node(ALEState state, int lives, ActionVect& possible_actions) :
     parent(NULL),
     visits(0),
     imm_reward(0),
     avg_return(-1e10),
+    lives(lives),
     state(state)
 {
   untried_actions.assign(possible_actions.begin(), possible_actions.end());
 }
 
-Node::Node(Node* parent, Action a, ALEState state, float reward, ActionVect& possible_actions) :
+Node::Node(Node* parent, Action a, ALEState state, float reward, int lives,
+           ActionVect& possible_actions) :
     parent(parent),
     action(a),
     visits(0),
     imm_reward(reward),
     avg_return(-1e10),
+    lives(lives),
     state(state)
 {
   untried_actions.assign(possible_actions.begin(), possible_actions.end());
@@ -74,7 +77,14 @@ Node* Node::most_visited_child() {
   return best_child;
 }
 
-Node* Node::add_child(Action a, ALEState s, float reward, ActionVect& possible_actions) {
+Node* Node::random_child(std::mt19937& rng) {
+  list<Node*>::iterator it = children.begin();
+  advance(it, rng() % children.size());
+  return *it;
+}
+
+Node* Node::add_child(Action a, ALEState s, float reward, int lives,
+                      ActionVect& possible_actions) {
   for (list<Node*>::iterator iter=children.begin(); iter!=children.end(); iter++) {
     Node* child = *iter;
     if (child->state.equals(s)) {
@@ -82,7 +92,7 @@ Node* Node::add_child(Action a, ALEState s, float reward, ActionVect& possible_a
       return child;
     }
   }
-  Node* child = new Node(this, a, s, reward, possible_actions);
+  Node* child = new Node(this, a, s, reward, lives, possible_actions);
   children.push_back(child);
   return child;
 }
@@ -101,7 +111,8 @@ void Node::print(int indent, bool print_children) {
   string s;
   for (int i=0; i<indent; ++i) { s += " "; };
   cout << s << "a=" << action << " r=" << imm_reward << " J=" << avg_return
-       << " v=" << visits << " untried=" << untried_actions.size() << endl;
+       << " v=" << visits << " untried=" << untried_actions.size()
+       << " children=" << children.size() << endl;
   if (print_children) {
     for (list<Node*>::iterator iter=children.begin(); iter!=children.end(); iter++) {
       Node* child = *iter;
@@ -109,4 +120,3 @@ void Node::print(int indent, bool print_children) {
     }
   }
 }
-

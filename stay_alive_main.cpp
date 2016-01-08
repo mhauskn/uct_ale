@@ -1,6 +1,7 @@
 #include <gflags/gflags.h>
 #include <random>
 #include <chrono>
+#include <SDL.h>
 #include "stay_alive.hpp"
 
 using namespace std;
@@ -10,6 +11,7 @@ DEFINE_double(repeat_action_prob, 0, "Probability to repeat actions");
 DEFINE_string(rom, "", "Atari ROM file to load");
 DEFINE_bool(minimal_action_set, false, "Use minimal action set");
 DEFINE_int32(seed, 0, "Random seed. Default: time");
+DEFINE_bool(display, false, "Visualize the policy");
 
 int main(int argc, char** argv) {
   google::ParseCommandLineFlags(&argc, &argv, true);
@@ -26,9 +28,18 @@ int main(int argc, char** argv) {
   ActionVect selected_actions;
   StayAlive alive(ale, action_set, rng);
   selected_actions = alive.run();
+
   cout << "ActionSequence: ";
   float total_reward = 0;
-  ale.restoreState(start_state);
+
+  if (FLAGS_display) {
+    ale.setBool("display_screen", true);
+    ale.setBool("sound", true);
+    ale.loadROM(FLAGS_rom);
+  }
+  ale.reset_game();
+  // ale.restoreState(start_state);
+
   for (int i=0; i<selected_actions.size(); ++i) {
     cout << selected_actions[i] << " ";
     total_reward += ale.act(selected_actions[i]);
