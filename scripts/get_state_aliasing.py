@@ -40,6 +40,7 @@ total_frames = 0
 total_aliased_frames = 0
 for episode in xrange(10):
   state = {}
+  rams = {}
   total_reward = 0
   frame = 0
   aliased_screens = 0
@@ -50,6 +51,8 @@ for episode in xrange(10):
     reward = ale.act(a)
     screen = tuple(ale.getScreen())
     ram = tuple(ale.getRAM())
+    assert ram not in rams, 'Duplicate ram found'
+    rams[ram] = None
     if screen in state:
       aliased_screens += 1
       # plt.imshow(np.array(screen).reshape((dims[1],dims[0]), order='C'))
