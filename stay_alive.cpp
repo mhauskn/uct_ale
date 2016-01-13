@@ -6,6 +6,7 @@
 using namespace std;
 
 DEFINE_int32(tolerance, 1000, "Consecutive backtracks allowed before quitting");
+DEFINE_int32(max_depth, 1000000, "Quit after trajectory has reached this depth");
 
 StayAlive::StayAlive(ALEInterface& ale, ActionVect& actions, mt19937& rng) :
     UCT(ale, actions, rng) {}
@@ -13,7 +14,7 @@ StayAlive::StayAlive(ALEInterface& ale, ActionVect& actions, mt19937& rng) :
 vector<Action> StayAlive::run() {
   vector<Action> selected_actions;
   Node* n = root;
-  while (!n->terminal()) {
+  while (!n->terminal() && selected_actions.size() < FLAGS_max_depth) {
     vector<Action> chosen_actions = explore_until_mistake(n);
     for (int i=0; i<chosen_actions.size(); ++i) {
       Action a = chosen_actions[i];
@@ -31,7 +32,7 @@ vector<Action> StayAlive::explore_until_mistake(Node* start_node) {
   Node* n = start_node;
   int depth = 0;
   int failed_attempts = 0;
-  while (failed_attempts < FLAGS_tolerance) {
+  while (failed_attempts < FLAGS_tolerance && depth < FLAGS_max_depth) {
     while (!n->fully_expanded()) {
       n = expand(n);
       depth++;

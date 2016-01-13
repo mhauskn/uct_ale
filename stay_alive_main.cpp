@@ -14,6 +14,7 @@ DEFINE_string(rom, "", "Atari ROM file to load");
 DEFINE_bool(minimal_action_set, false, "Use minimal action set");
 DEFINE_bool(display, false, "Display the trajectory");
 DEFINE_int32(seed, 0, "Random seed. Default: time");
+DEFINE_string(record_path, "", "Save images of trajectory to specified folder");
 
 int main(int argc, char** argv) {
   google::ParseCommandLineFlags(&argc, &argv, true);
@@ -39,10 +40,18 @@ int main(int argc, char** argv) {
     ale.setBool("display_screen", true);
     ale.setBool("sound", true);
     ale.loadROM(FLAGS_rom);
+    if (!FLAGS_record_path.empty()) {
+      cout << "Recording screens to " << FLAGS_record_path << endl;
+      ale.setString("record_screen_dir", FLAGS_record_path.c_str());
+      ale.setString("record_sound_filename", (FLAGS_record_path + "/sound.wav").c_str());
+      ale.setInt("fragsize", 64);
+      ale.loadROM(FLAGS_rom);
+    }
 #else
     cerr << "Recompile with SDL on to display." << endl;
 #endif
   }
+
   ale.restoreState(start_state);
 
   for (int i=0; i<selected_actions.size(); ++i) {
