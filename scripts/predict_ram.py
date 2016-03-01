@@ -18,15 +18,17 @@ NUM_CHANNELS = 1
 PIXEL_DEPTH = 255
 NUM_LABELS = 1024
 VALID_FRACTION = .1
-TRAIN_FRACTION = .7
+TRAIN_FRACTION = .6
 
 flags = tf.app.flags
 FLAGS = flags.FLAGS
 flags.DEFINE_string('save', '/tmp/', 'path to save assets')
+flags.DEFINE_string('load', '', 'path to checkpoint to load')
 flags.DEFINE_string('data', '', 'input hdf5 dataset')
 flags.DEFINE_integer('epochs', 500, 'number of epochs to run')
 flags.DEFINE_integer('batch', 64, 'batch size')
 flags.DEFINE_integer('seed', None, 'random seed')
+flags.DEFINE_boolean('test', False, 'Enter test mode')
 
 def eval_correct(predictions, labels):
   return np.sum(np.all(np.rint(predictions) == labels, axis=1))
@@ -37,19 +39,18 @@ def avg_correct_bits(predictions, labels):
 def error_rate(predictions, labels):
   return 100.0 - (100.0 * eval_correct(predictions, labels) / predictions.shape[0])
 
-def get_batch(h5f, offset):
-  batch_data = h5f['screens'][offset:(offset + FLAGS.batch)].astype('float32')
-  batch_labels = h5f['ram'][offset:(offset + FLAGS.batch)]
+def get_batch(screens, ram, offset):
+  batch_data = screens[offset:(offset + FLAGS.batch)].astype('float32')
+  batch_labels = ram[offset:(offset + FLAGS.batch)]
   batch_data /= 255
   batch_labels = np.unpackbits(batch_labels, axis=1).astype('float32')
   return batch_data, batch_labels
 
-def evaluate(sess, images_pl, labels_pl, accuracy_pl, correct_pl, start_offset,
-             end_offset, h5f):
-  offset = start_offset
+def evaluate(sess, images_pl, labels_pl, accuracy_pl, correct_pl, screens, ram):
+  offset = 0
   total_acc, total_correct, batch = 0, 0, 0
-  while offset + FLAGS.batch <= end_offset:
-    batch_data, batch_labels = get_batch(h5f, offset)
+  for step in xrange(screens.shape[0] // FLAGS.batch):
+    batch_data, batch_labels = get_batch(screens, ram, offset)
     accuracy, correct = sess.run(
       [accuracy_pl, correct_pl],
       feed_dict={images_pl:batch_data, labels_pl:batch_labels})
@@ -59,18 +60,44 @@ def evaluate(sess, images_pl, labels_pl, accuracy_pl, correct_pl, start_offset,
     batch += 1
   return total_acc / batch, total_correct / batch
 
+def get_step(fname):
+  try:
+    return int(fname.split('-')[-1])
+  except:
+    print("Error parsing step from file: %s" % fname)
+    exit()
+
+def maybe_restore(sess, saver):
+  latest = tf.train.latest_checkpoint(FLAGS.save, latest_filename='checkpoint_train')
+  saver.set_last_checkpoints([tf.train.latest_checkpoint(FLAGS.save)])
+  restore_fname = FLAGS.load or latest
+  if restore_fname:
+    print("Resuming from checkpoint: %s" % restore_fname)
+    saver.restore(sess, restore_fname)
+    return get_step(restore_fname)
+  else:
+    print("No resumable checkpoints found")
+    return 0
+
 def main(argv=None):
   h5f = h5py.File(FLAGS.data, 'r')
   print('Training Data Shape:', h5f['screens'].shape)
   n_examples, img_rows, img_cols, n_channels = h5f['screens'].shape
   train_size = int(TRAIN_FRACTION * n_examples)
   valid_size = int(VALID_FRACTION * n_examples)
+  if FLAGS.test:
+    test_data = h5f['screens'][train_size + valid_size :]
+    test_labels = h5f['ram'][train_size + valid_size :]
+  else:
+    train_data = h5f['screens'][:train_size]
+    train_labels = h5f['ram'][:train_size]
+    valid_data = h5f['screens'][train_size : train_size + valid_size]
+    valid_labels = h5f['ram'][train_size : train_size + valid_size]
 
   data_node = tf.placeholder(
     tf.float32, shape=(FLAGS.batch, img_rows, img_cols, n_channels), name='input_data')
   labels_node = tf.placeholder(
     tf.float32, shape=(FLAGS.batch, NUM_LABELS), name='input_labels')
-  # _ = tf.image_summary('input_images', data_node)
   with tf.name_scope('conv1'):
     conv1_weights = tf.Variable(
       tf.truncated_normal([8, 8, n_channels, 32], stddev=0.1, seed=FLAGS.seed),
@@ -78,9 +105,6 @@ def main(argv=None):
     conv1_biases = tf.Variable(tf.zeros([32]), name='conv1_biases')
     conv = tf.nn.conv2d(data_node, conv1_weights, strides=[1, 4, 4, 1], padding='VALID')
     relu = tf.nn.relu(tf.nn.bias_add(conv, conv1_biases))
-    _ = tf.histogram_summary('conv1_weights', conv1_weights)
-    _ = tf.histogram_summary('conv1_biases', conv1_biases)
-    # _ = tf.image_summary('conv1_images', conv[:,:,:,:1])
   with tf.name_scope('conv2'):
     conv2_weights = tf.Variable(
       tf.truncated_normal([4, 4, 32, 64], stddev=0.1, seed=FLAGS.seed),
@@ -88,9 +112,6 @@ def main(argv=None):
     conv2_biases = tf.Variable(tf.constant(0.1, shape=[64]), name='conv2_biases')
     conv = tf.nn.conv2d(relu, conv2_weights, strides=[1, 2, 2, 1], padding='VALID')
     relu = tf.nn.relu(tf.nn.bias_add(conv, conv2_biases))
-    _ = tf.histogram_summary('conv2_weights', conv2_weights)
-    _ = tf.histogram_summary('conv2_biases', conv2_biases)
-    # _ = tf.image_summary('conv2_images', conv[:,:,:,:1])
   with tf.name_scope('conv3'):
     conv3_weights = tf.Variable(
       tf.truncated_normal([3, 3, 64, 64], stddev=0.1, seed=FLAGS.seed),
@@ -107,15 +128,11 @@ def main(argv=None):
     reshape = tf.reshape(
       relu, [pool_shape[0], pool_shape[1] * pool_shape[2] * pool_shape[3]])
     hidden = tf.nn.relu(tf.matmul(reshape, fc1_weights) + fc1_biases)
-    # _ = tf.histogram_summary('fc1_weights', fc1_weights)
-    # _ = tf.histogram_summary('fc1_biases', fc1_biases)
   with tf.name_scope('fc2'):
     fc2_weights = tf.Variable(
       tf.truncated_normal([512, NUM_LABELS], stddev=0.1, seed=FLAGS.seed), name='fc2_weights')
     fc2_biases = tf.Variable(tf.constant(0.1, shape=[NUM_LABELS]), name='fc2_biases')
     logits = tf.matmul(hidden, fc2_weights) + fc2_biases
-    # _ = tf.histogram_summary('fc2_weights', fc2_weights)
-    # _ = tf.histogram_summary('fc2_biases', fc2_biases)
   with tf.name_scope('regularization'):
     regularizers = 5e-4 * (tf.nn.l2_loss(fc1_weights) + tf.nn.l2_loss(fc1_biases) +
                            tf.nn.l2_loss(fc2_weights) + tf.nn.l2_loss(fc2_biases))
@@ -132,45 +149,49 @@ def main(argv=None):
     _ = tf.scalar_summary('correct', correct)
   optimizer = tf.train.AdamOptimizer().minimize(loss)
   with tf.Session() as s:
-    summary_op = tf.merge_all_summaries()
-    writer = tf.train.SummaryWriter(FLAGS.save, s.graph_def)
-    tf.initialize_all_variables().run()
-    saver = tf.train.Saver()
-    best_valid_acc = 0
-    print('Model Initialized!')
-    for step in xrange(FLAGS.epochs * train_size // FLAGS.batch):
-      offset = (step * FLAGS.batch) % (train_size - FLAGS.batch)
-      batch_data, batch_labels = get_batch(h5f, offset)
-      summaries,_,l,acc,c = s.run(
-        [summary_op, optimizer, loss, accuracy, correct],
-        feed_dict={data_node:batch_data, labels_node:batch_labels})
-      writer.add_summary(summaries, step)
-      if step % 100 == 0:
-        print('Epoch %.2f' % (float(step) * FLAGS.batch / train_size))
-        print('  Minibatch: Loss=%.3f Accuracy=%.3f Correct=%.0f' % (l, acc, c))
-        valid_acc, valid_correct = evaluate(s, data_node, labels_node, accuracy,
-                                            correct, train_size,
-                                            train_size + valid_size, h5f)
-        print('  Validation: Accuracy=%.3f Correct=%.0f' % (valid_acc, valid_correct))
-        if valid_acc > best_valid_acc:
-          fname = os.path.join(FLAGS.save, 'best.ckpt')
-          saver.save(s, fname)
-          print('Saved model at: %s' % fname)
-          best_valid_acc = valid_acc
-        sys.stdout.flush()
-    # Eval final model on test
-    test_acc, test_correct = evaluate(s, data_node, labels_node, accuracy, correct,
-                                      train_size + valid_size, n_examples, h5f)
-    print('[Final] TestEval: Accuracy=%.1f Correct=%.0f' % (test_acc, test_correct))
-    fname = os.path.join(FLAGS.save, 'final.ckpt')
-    saver.save(s, fname)
-    print('Model saved in file: %s' % fname)
-    # Eval on best valid model
-    saver.restore(s, os.path.join(FLAGS.save, 'best.ckpt'))
-    print('Best model loaded from file: %s' % os.path.join(FLAGS.save, 'best.ckpt'))
-    test_acc, test_correct = evaluate(s, data_node, labels_node, accuracy, correct,
-                                      train_size + valid_size, n_examples, h5f)
-    print('[Best] TestEval: Accuracy=%.1f Correct=%.0f' % (test_acc, test_correct))
+    saver = tf.train.Saver(max_to_keep=1)
+    start_step = maybe_restore(s, saver)
+    if FLAGS.test:
+      restore_fname = tf.train.latest_checkpoint(FLAGS.save, latest_filename='checkpoint')
+      if restore_fname:
+        print("Resuming from checkpoint: %s" % restore_fname)
+        saver.restore(s, restore_fname)
+        print('TestEval: Accuracy=%.3f Correct=%.0f' %
+              evaluate(s, data_node, labels_node, accuracy, correct, test_data, test_labels))
+      restore_fname = tf.train.latest_checkpoint(FLAGS.save, latest_filename='checkpoint_valid')
+      if restore_fname:
+        print("Resuming from checkpoint: %s" % restore_fname)
+        saver.restore(s, restore_fname)
+        print('TestEval: Accuracy=%.3f Correct=%.0f' %
+              evaluate(s, data_node, labels_node, accuracy, correct, test_data, test_labels))
+    else:
+      summary_op = tf.merge_all_summaries()
+      writer = tf.train.SummaryWriter(FLAGS.save, s.graph_def)
+      tf.initialize_all_variables().run()
+      best_valid_acc = 0
+      valid_saver = tf.train.Saver(max_to_keep=1)
+      print('Model Initialized! Starting from step %d' % start_step)
+      for step in xrange(start_step, FLAGS.epochs * train_size // FLAGS.batch):
+        offset = (step * FLAGS.batch) % (train_size - FLAGS.batch)
+        batch_data, batch_labels = get_batch(train_data, train_labels, offset)
+        summaries,_,l,acc,c = s.run(
+          [summary_op, optimizer, loss, accuracy, correct],
+          feed_dict={data_node:batch_data, labels_node:batch_labels})
+        writer.add_summary(summaries, step)
+        if step % 5000 == 0:
+          saver.save(s, os.path.join(FLAGS.save, 'train'), global_step=step,
+                     latest_filename='checkpoint_train')
+          print('Step %d Epoch %.2f' % (step, float(step) * FLAGS.batch / train_size))
+          print('  Minibatch: Loss=%.3f Accuracy=%.3f Correct=%.0f' % (l, acc, c))
+          valid_acc, valid_correct = evaluate(s, data_node, labels_node, accuracy,
+                                              correct, valid_data, valid_labels)
+          print('  Validation: Accuracy=%.3f Correct=%.0f' % (valid_acc, valid_correct))
+          if valid_acc > best_valid_acc:
+            valid_saver.save(s, os.path.join(FLAGS.save, 'valid'), global_step=step,
+                             latest_filename='checkpoint_valid')
+            best_valid_acc = valid_acc
+          sys.stdout.flush()
+      saver.save(s, os.path.join(FLAGS.save, 'final'), global_step=step)
 
 if __name__ == '__main__':
   tf.app.run()
