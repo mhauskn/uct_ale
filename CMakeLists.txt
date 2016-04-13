@@ -38,10 +38,10 @@ link_directories(${SOURCE_DIR})
 find_package(GFlags REQUIRED)
 include_directories(${GFLAGS_INCLUDE_DIR})
 
-add_executable(uct node.cpp uct.cpp uct_main.cpp)
+add_executable(uct src/node.cpp src/uct.cpp src/uct_main.cpp)
 add_dependencies(uct ale)
 target_link_libraries(uct -lale ${GFLAGS_LIBRARY} -lpthread)
 
-add_executable(stay_alive node.cpp stay_alive.cpp uct.cpp stay_alive_main.cpp)
+add_executable(stay_alive src/node.cpp src/stay_alive.cpp src/uct.cpp src/stay_alive_main.cpp)
 add_dependencies(stay_alive ale)
 target_link_libraries(stay_alive -lale ${GFLAGS_LIBRARY} -lpthread)

@@ -13,6 +13,7 @@ from six.moves import xrange  # pylint: disable=redefined-builtin
 import tensorflow as tf
 import h5py
 from IPython.core.debugger import Tracer
+import threading
 
 NUM_CHANNELS = 1
 PIXEL_DEPTH = 255
@@ -29,6 +30,23 @@ flags.DEFINE_integer('epochs', 500, 'number of epochs to run')
 flags.DEFINE_integer('batch', 64, 'batch size')
 flags.DEFINE_integer('seed', None, 'random seed')
 flags.DEFINE_boolean('test', False, 'Enter test mode')
+
+def run_ale(rom, seed):
+  random.seed(seed)
+  ale = ALEInterface()
+  ale.setInt("frame_skip", 3);
+  ale.setFloat("repeat_action_probability", 0);
+  ale.setInt("random_seed", seed)
+  ale.loadROM(rom)
+  legal_actions = ale.getLegalActionSet()
+  dims = ale.getScreenDims()
+  while True:
+    while not ale.game_over():
+      a = legal_actions[randrange(len(legal_actions))]
+      reward = ale.act(a);
+      screen = ale.getScreen()
+      ram = ale.getRAM()
+    ale.reset_game()
 
 def eval_correct(predictions, labels):
   return np.sum(np.all(np.rint(predictions) == labels, axis=1))
